@@ -8,8 +8,10 @@ class LuaHelper:
     """Pomocná třída pro parsování a formátování LUA tabulek."""
     @staticmethod
     def clean_lua_for_parsing(lua_str):
+        # Nejdříve zpracujeme GetHashKey, aby se předešlo konfliktům s vektory
         lua_str = re.sub(r'--.*', '', lua_str)
-        lua_str = re.sub(r'GetHashKey\s*\(\s*([^)]+)\s*\)', lambda m: f"'GHK({m.group(1).strip()})'", lua_str)
+        # Zpracuje GetHashKey a odstraní vnitřní uvozovky, aby byl obsah čistý
+        lua_str = re.sub(r'GetHashKey\s*\(\s*["\']?([^"\')]+)["\']?\s*\)', r"'GHK(\1)'", lua_str)
         lua_str = re.sub(r'vector3\s*\(([^)]+)\)', r"'VEC3(\1)'", lua_str)
         lua_str = re.sub(r'vector4\s*\(([^)]+)\)', r"'VEC4(\1)'", lua_str)
         return lua_str
@@ -21,10 +23,16 @@ class LuaHelper:
         if isinstance(value, bool): return "true" if value else "false"
         if isinstance(value, (int, float)): return str(value)
         if isinstance(value, str):
-            if value.startswith('GHK('): return f'GetHashKey({value[4:-1]})'
+            if value.startswith('GHK('):
+                hash_content = value[4:-1].strip().strip('"').strip("'")
+                if re.fullmatch(r'[0-9]+', hash_content):
+                    return f'GetHashKey({hash_content})'
+                return f'GetHashKey("{hash_content}")'
             if value.startswith('VEC3('): return f'vector3({value[5:-1]})'
             if value.startswith('VEC4('): return f'vector4({value[5:-1]})'
-            if value.isupper() and '_' in value: return value
+            # Kontrola pro konstanty, které nejsou obaleny v GHK (např. combat style)
+            if re.fullmatch(r'[A-Z_0-9]+', value):
+                return value
             return f'"{value}"'.replace('\\', '\\\\')
 
         if isinstance(value, list):
@@ -37,11 +45,8 @@ class LuaHelper:
             for key in keys:
                 val = value[key]
                 key_str = f'[{key}]' if isinstance(key, int) else f'{key}'
-                # --- ZAČÁTEK OPRAVY ---
-                # Zjednodušená a opravená logika formátování
                 formatted_val = LuaHelper.format_value_to_lua(val, indent_level + 1)
                 items.append(f'{indent}{key_str} = {formatted_val}')
-                # --- KONEC OPRAVY ---
             return "{\n" + ",\n".join(items) + f"\n{indent[:-4]}}}"
         return 'nil'
 

@@ -17,7 +17,7 @@ class QuestEditor(QMainWindow):
     """Hlavní okno aplikace Quest Config Editor."""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Quest Config Editor v1.5 (Modular)")
+        self.setWindowTitle("Quest Config Editor v1.6 (Final)")
         self.setGeometry(100, 100, 1400, 900)
         self.config_data = {}
         self.current_file_path = None
@@ -32,7 +32,6 @@ class QuestEditor(QMainWindow):
         main_layout = QHBoxLayout(main_widget)
         splitter = QSplitter(Qt.Horizontal); main_layout.addWidget(splitter)
         
-        # Levý panel (strom)
         left_panel = QWidget(); left_layout = QVBoxLayout(left_panel)
         self.tree_view = QTreeView(); self.tree_view.setHeaderHidden(True)
         self.tree_model = QStandardItemModel()
@@ -47,7 +46,6 @@ class QuestEditor(QMainWindow):
         left_layout.addLayout(tree_buttons_layout)
         splitter.addWidget(left_panel)
         
-        # Pravý panel (editor)
         self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True)
         self.placeholder_widget = QLabel("<- Vyberte položku ze stromu pro editaci")
         self.placeholder_widget.setAlignment(Qt.AlignCenter)
@@ -169,7 +167,33 @@ class QuestEditor(QMainWindow):
 
     def add_npc(self):
         new_id = max(self.config_data.keys()) + 1 if self.config_data else 1
-        self.config_data[new_id] = {"name": f"Nové NPC {new_id}", "coords": "VEC3(0.0, 0.0, 0.0)", "heading": 0.0, "ped": {"model": 'GHK(cs_nbxexecuted)', "preset": 0}, "blip": None, "quests": {}}
+        # --- ZAČÁTEK OPRAVY ---
+        # Kompletní šablona pro nové NPC
+        self.config_data[new_id] = {
+            "name": f"Nové NPC {new_id}",
+            "coords": "VEC3(0.0,0.0,0.0)",
+            "heading": 0.0,
+            "job": [],
+            "ped": {
+                "model": 'GHK(cs_nbxexecuted)',
+                "preset": 0,
+                "anim": [],
+                "scenario": ""
+            },
+            "blip": {
+                "enable": True,
+                "sprite": 0,
+                "color": 0,
+                "scale": 1.0,
+                "text": f"Nové NPC {new_id}"
+            },
+            "other_quest_requirement": False,
+            "reset_progress": {"enable": False, "price": 500},
+            "shop": {"completed_quest_requirement": 0, "items": []},
+            "quests": {},
+            "random_coords": []
+        }
+        # --- KONEC OPRAVY ---
         self.populate_tree(); self.tree_view.expandAll()
 
     def remove_selected(self):
