@@ -80,7 +80,7 @@ class QuestWizardDialog(QDialog):
                     "style": "GHK(BLIP_STYLE_FM_EVENT_RADIUS)",
                     "radius": 60.0
                 },
-                "img": ""
+                "img": "https://raw.githubusercontent.com/abdulkadiraktas/rdr3_discoveries/master/useful_info_from_rpfs/textures/ui_textures_mp/images/toast_awards_set_p/awards_set_p_004.png"
             }
         }
         self.accept()

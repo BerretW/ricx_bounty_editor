@@ -189,16 +189,16 @@ class QuestEditor(QMainWindow):
             "name": f"Nové NPC {new_id}",
             "coords": "VEC3(0.0,0.0,0.0)",
             "heading": 0.0,
-            "job": [],
+            "job": None,
             "ped": {
-                "model": 'cs_nbxexecuted',
+                "model": 'GHK(cs_nbxexecuted)',
                 "preset": 0,
                 "anim": ["amb_rest_lean@world_human_lean@wall@right@male_b@idle_a", "idle_c"],
                 "scenario": ""
             },
             "blip": {
                 "enable": True,
-                "sprite": 0,
+                "sprite": -2034972265,
                 "color": 0,
                 "scale": 1.0,
                 "text": f"Nové NPC {new_id}"
