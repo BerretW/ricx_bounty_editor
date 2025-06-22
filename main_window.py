@@ -5,13 +5,14 @@ import os
 from slpp import slpp as lua
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter, QTreeView,
-    QLabel, QPushButton, QMessageBox, QFileDialog, QScrollArea, QAction
+    QLabel, QPushButton, QMessageBox, QFileDialog, QScrollArea, QAction,QDialog
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QStandardItemModel, QStandardItem
 
 from lua_helper import LuaHelper
 from ui_components import ItemEditorWidget
+from quest_wizard import QuestWizardDialog
 
 class QuestEditor(QMainWindow):
     """Hlavní okno aplikace Quest Config Editor."""
@@ -27,31 +28,37 @@ class QuestEditor(QMainWindow):
     def init_ui(self):
         self._create_menu()
         self.statusBar().showMessage("Připraven. Otevřete LUA soubor.")
-        
+
         main_widget = QWidget(); self.setCentralWidget(main_widget)
         main_layout = QHBoxLayout(main_widget)
         splitter = QSplitter(Qt.Horizontal); main_layout.addWidget(splitter)
-        
+
         left_panel = QWidget(); left_layout = QVBoxLayout(left_panel)
         self.tree_view = QTreeView(); self.tree_view.setHeaderHidden(True)
         self.tree_model = QStandardItemModel()
         self.tree_view.setModel(self.tree_model)
         self.tree_view.selectionModel().selectionChanged.connect(self.on_tree_item_selected)
         left_layout.addWidget(self.tree_view)
-        
+
         tree_buttons_layout = QHBoxLayout()
         add_npc_btn = QPushButton("Přidat NPC"); add_npc_btn.clicked.connect(self.add_npc)
+        add_quest_btn = QPushButton("Přidat Quest"); add_quest_btn.clicked.connect(self.add_quest_to_selected_npc)
         remove_btn = QPushButton("Odebrat vybrané"); remove_btn.clicked.connect(self.remove_selected)
-        tree_buttons_layout.addWidget(add_npc_btn); tree_buttons_layout.addWidget(remove_btn)
+        tree_buttons_layout.addWidget(add_npc_btn)
+        tree_buttons_layout.addWidget(add_quest_btn)
+        tree_buttons_layout.addWidget(remove_btn)
         left_layout.addLayout(tree_buttons_layout)
         splitter.addWidget(left_panel)
-        
+
         self.scroll_area = QScrollArea(); self.scroll_area.setWidgetResizable(True)
-        self.placeholder_widget = QLabel("<- Vyberte položku ze stromu pro editaci")
-        self.placeholder_widget.setAlignment(Qt.AlignCenter)
-        self.scroll_area.setWidget(self.placeholder_widget)
+        self.show_placeholder()
         splitter.addWidget(self.scroll_area)
         splitter.setSizes([350, 1050])
+
+    def show_placeholder(self):
+        placeholder = QLabel("<- Vyberte položku ze stromu pro editaci")
+        placeholder.setAlignment(Qt.AlignCenter)
+        self.scroll_area.setWidget(placeholder)
 
     def _create_menu(self):
         menubar = self.menuBar()
@@ -73,11 +80,11 @@ class QuestEditor(QMainWindow):
             with open(path, 'r', encoding='utf-8') as f: content = f.read()
             lua_data_str = content[content.find("Config.Quests = {"):] if "Config.Quests = {" in content else content
             lua_data_str = lua_data_str.replace("Config.Quests = ", "", 1).strip()
-            
+
             cleaned_lua = LuaHelper.clean_lua_for_parsing(lua_data_str)
             self.config_data = lua.decode(cleaned_lua)
             self.current_file_path = path
-            
+
             self.extract_presets()
             self.populate_tree()
             self.statusBar().showMessage(f"Soubor načten: {os.path.basename(path)}", 5000)
@@ -141,9 +148,9 @@ class QuestEditor(QMainWindow):
 
     def on_tree_item_selected(self, selected, deselected):
         indexes = selected.indexes()
-        if not indexes: self.scroll_area.setWidget(self.placeholder_widget); return
+        if not indexes: self.show_placeholder(); return
         item = self.tree_model.itemFromIndex(indexes[0])
-        if not item or not item.data(Qt.UserRole): self.scroll_area.setWidget(self.placeholder_widget); return
+        if not item or not item.data(Qt.UserRole): self.show_placeholder(); return
         item_data = item.data(Qt.UserRole)
         data_dict = None; item_type = item_data.get('type')
         if item_type == 'npc': data_dict = self.config_data[item_data['id']]
@@ -166,18 +173,17 @@ class QuestEditor(QMainWindow):
             item.setText(f"  Quest [{item_data['id']}]: {data.get('name', 'Beze jména')}")
 
     def add_npc(self):
-        new_id = max(self.config_data.keys()) + 1 if self.config_data else 1
-        # --- ZAČÁTEK OPRAVY ---
-        # Kompletní šablona pro nové NPC
+        numeric_keys = [k for k in self.config_data.keys() if isinstance(k, int)]
+        new_id = max(numeric_keys) + 1 if numeric_keys else 1
         self.config_data[new_id] = {
             "name": f"Nové NPC {new_id}",
             "coords": "VEC3(0.0,0.0,0.0)",
             "heading": 0.0,
             "job": [],
             "ped": {
-                "model": 'GHK(cs_nbxexecuted)',
+                "model": 'cs_nbxexecuted',
                 "preset": 0,
-                "anim": [],
+                "anim": ["amb_rest_lean@world_human_lean@wall@right@male_b@idle_a", "idle_c"],
                 "scenario": ""
             },
             "blip": {
@@ -193,8 +199,29 @@ class QuestEditor(QMainWindow):
             "quests": {},
             "random_coords": []
         }
-        # --- KONEC OPRAVY ---
         self.populate_tree(); self.tree_view.expandAll()
+
+    def add_quest_to_selected_npc(self):
+        indexes = self.tree_view.selectedIndexes()
+        if not indexes:
+            QMessageBox.information(self, "Výběr", "Vyberte NPC ve stromu.")
+            return
+
+        item = self.tree_model.itemFromIndex(indexes[0])
+        data = item.data(Qt.UserRole)
+        if not data or data['type'] != 'npc':
+            QMessageBox.information(self, "Chyba", "Vyberte platného NPC.")
+            return
+
+        npc_id = data['id']
+        dialog = QuestWizardDialog(self.presets, self)
+        if dialog.exec_() == QDialog.Accepted:
+            quest_data = dialog.get_result()
+            npc_quests = self.config_data[npc_id].setdefault("quests", {})
+            new_id = max(npc_quests.keys(), default=0) + 1
+            npc_quests[new_id] = quest_data
+            self.populate_tree()
+            self.tree_view.expandAll()
 
     def remove_selected(self):
         indexes = self.tree_view.selectedIndexes()
@@ -205,4 +232,4 @@ class QuestEditor(QMainWindow):
         item_data = item.data(Qt.UserRole)
         if item_data['type'] == 'npc': del self.config_data[item_data['id']]
         elif item_data['type'] == 'quest': del self.config_data[item_data['npc_id']]['quests'][item_data['id']]
-        self.populate_tree(); self.scroll_area.setWidget(self.placeholder_widget)
+        self.populate_tree(); self.show_placeholder()
