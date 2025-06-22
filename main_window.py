@@ -103,14 +103,24 @@ class QuestEditor(QMainWindow):
 
     def do_save(self, path):
         if not self.config_data:
-            QMessageBox.warning(self, "Varování", "Není co uložit."); return
+            QMessageBox.warning(self, "Varování", "Není co uložit.")
+            return
         try:
             lua_output = "Config.Quests = " + LuaHelper.format_value_to_lua(self.config_data)
-            with open(path, 'w', encoding='utf-8') as f: f.write(lua_output)
+
+            # Ověření – lze zpětně načíst?
+            test_data = lua.decode(LuaHelper.clean_lua_for_parsing(lua_output.replace("Config.Quests = ", "")))
+            if not isinstance(test_data, dict):
+                raise ValueError("Výsledný Lua není ve správném formátu (není slovník).")
+
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(lua_output)
+
             self.current_file_path = path
             self.statusBar().showMessage(f"Soubor úspěšně uložen: {path}", 5000)
         except Exception as e:
             QMessageBox.critical(self, "Chyba při ukládání", f"Nepodařilo se uložit soubor:\n{e}")
+
 
     def extract_presets(self):
         self.presets = {'ped_models': set(), 'weapons': set(), 'combat_styles': set(['offensive', 'defensive', 'passive']),
