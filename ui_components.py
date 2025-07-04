@@ -2,10 +2,11 @@
 # -*- coding: utf-8 -*-
 
 import re
+import copy
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, QLabel, QPushButton,
     QComboBox, QCheckBox, QDoubleSpinBox, QListWidget, QListWidgetItem, QDialog,
-    QDialogButtonBox, QGroupBox, QTextEdit, QInputDialog, QSpinBox
+    QDialogButtonBox, QGroupBox, QTextEdit, QInputDialog, QSpinBox, QMessageBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QIntValidator
@@ -28,6 +29,10 @@ class ItemEditorWidget(QWidget):
         self.presets = presets
         self.main_layout = QVBoxLayout(self)
         self.main_layout.setContentsMargins(10, 10, 10, 10); self.main_layout.setSpacing(15)
+        
+        # Klíče, které jsou seznamem, ale mohou být i `nil`
+        self.nullable_list_keys = {'job', 'random_coords', 'anim'}
+        
         self.build_form()
 
     def build_form(self):
@@ -46,9 +51,10 @@ class ItemEditorWidget(QWidget):
             'reward_item': {"keys": ['id', 'amount']},
             'shop_item': {"keys": ['id', 'price']},
             'extra_reward': {"keys": ['killer_weapon', 'reward']},
+            'other_quest_requirement': {"keys": ['quest_npc', 'questid']},
         }
 
-        self.dict_keys = ['ped', 'blip', 'reset_progress', 'shop', 'target', 'extra_reward', 'areablip']
+        self.dict_keys = ['ped', 'blip', 'reset_progress', 'shop', 'target', 'extra_reward', 'areablip', 'other_quest_requirement']
         self.list_keys = ['random_coords', 'job', 'quests', 'reward', 'guards', 'items', 'anim', 'pos']
 
         if not isinstance(self.data_dict, dict): return
@@ -81,17 +87,41 @@ class ItemEditorWidget(QWidget):
 
         value = parent_data[key]
         
-        if key == 'pos':
-            if isinstance(value, list): layout.addRow(QLabel(f"{key} (seznam):"), self._create_list_editor(parent_data, key))
+        # --- START OF CORRECTED LOGIC ---
+        if key == 'other_quest_requirement':
+            container = QWidget(); h_layout = QHBoxLayout(container); h_layout.setContentsMargins(0, 0, 0, 0)
+            if isinstance(value, dict):
+                edit_btn = QPushButton("Upravit závislost..."); edit_btn.clicked.connect(lambda _, d=value, k=key: self._open_sub_editor_dialog(d, k))
+                del_btn = QPushButton("Smazat"); del_btn.setFixedWidth(80)
+                del_btn.clicked.connect(lambda _, d=parent_data, k=key: self._set_requirement_to_false(d, k))
+                h_layout.addWidget(edit_btn); h_layout.addWidget(del_btn)
             else:
-                widget = self._create_simple_widget(parent_data, key)
-                if widget: layout.addRow(QLabel(f"{key}:"), widget)
-            return True
+                create_btn = QPushButton("Vytvořit závislost na jiném questu")
+                create_btn.clicked.connect(lambda _, d=parent_data, k=key: self._create_requirement_dict(d, k))
+                h_layout.addWidget(create_btn)
+            layout.addRow(QLabel("Závislost:"), container)
+        
+        elif key in self.nullable_list_keys and isinstance(value, list):
+            container = QWidget()
+            h_layout = QHBoxLayout(container)
+            h_layout.setContentsMargins(0, 0, 0, 0)
+            list_editor = self._create_list_editor(parent_data, key)
+            h_layout.addWidget(list_editor)
+            del_btn = QPushButton("Smazat")
+            del_btn.setToolTip(f"Smaže celý klíč '{key}' a nastaví ho na nil.")
+            del_btn.setFixedWidth(80)
+            del_btn.clicked.connect(lambda _, d=parent_data, k=key: self._set_key_to_none(d, k))
+            h_layout.addWidget(del_btn)
+            layout.addRow(QLabel(f"{key}:"), container)
 
-        if key == 'shop' and isinstance(value, dict):
+        elif key == 'pos' and isinstance(value, list):
+            layout.addRow(QLabel(f"{key} (seznam):"), self._create_list_editor(parent_data, key))
+        
+        elif key == 'shop' and isinstance(value, dict):
             shop_editor = ItemEditorWidget('shop', value, self.presets)
             shop_editor.data_changed.connect(self.data_changed.emit)
             layout.addRow(shop_editor)
+            
         elif key == 'blip':
             if isinstance(value, bool):
                 widget = self._create_simple_widget(parent_data, key)
@@ -100,20 +130,41 @@ class ItemEditorWidget(QWidget):
                 btn = QPushButton("Upravit..."); btn.clicked.connect(lambda _, d=value, k=key: self._open_sub_editor_dialog(d, 'blip'))
                 layout.addRow(QLabel(f"{key}:"), btn)
             else:
-                 widget = self._create_simple_widget(parent_data, key)
-                 if widget: layout.addRow(QLabel(f"{key}:"), widget)
+                widget = self._create_simple_widget(parent_data, key)
+                if widget: layout.addRow(QLabel(f"{key}:"), widget)
+
         elif key in self.list_keys and isinstance(value, (list, dict)):
             layout.addRow(QLabel(f"{key}:"), self._create_list_editor(parent_data, key))
+            
         elif (key in self.dict_keys and key != 'shop') and isinstance(value, dict) and value is not None:
             btn = QPushButton("Upravit..."); btn.clicked.connect(lambda _, d=value, k=key: self._open_sub_editor_dialog(d, key))
             layout.addRow(QLabel(f"{key}:"), btn)
+            
         else:
             widget = self._create_simple_widget(parent_data, key)
             if widget: layout.addRow(QLabel(f"{key}:"), widget)
+        
         return True
+        # --- END OF CORRECTED LOGIC ---
+
+    def _set_key_to_none(self, parent_data, key):
+        parent_data[key] = None
+        self.build_form()
+        self.data_changed.emit()
+
+    def _set_requirement_to_false(self, parent_data, key):
+        parent_data[key] = False
+        self.build_form()
+        self.data_changed.emit()
+
+    def _create_requirement_dict(self, parent_data, key):
+        parent_data[key] = {'quest_npc': 1, 'questid': 1}
+        self.build_form()
+        self.data_changed.emit()
     
     def _add_missing_field(self, key):
-        if key == 'shop': self.data_dict[key] = {'completed_quest_requirement': 0, 'items': []}
+        if key == 'other_quest_requirement': self.data_dict[key] = False
+        elif key == 'shop': self.data_dict[key] = {'completed_quest_requirement': 0, 'items': []}
         elif key == 'blip': self.data_dict[key] = {'enable': True}
         elif key in self.dict_keys: self.data_dict[key] = {}
         elif key in self.list_keys: self.data_dict[key] = []
@@ -134,7 +185,7 @@ class ItemEditorWidget(QWidget):
             btn.clicked.connect(create_value)
             return btn
 
-        if key == 'preset':
+        if key in ['preset', 'quest_npc', 'questid']:
             widget = QSpinBox(); widget.setRange(-2147483647, 2147483647)
             widget.setValue(int(value)); widget.setButtonSymbols(QSpinBox.NoButtons)
             widget.valueChanged.connect(lambda v, d=parent_data, k=key: (d.update({k: v}), self.data_changed.emit()))
@@ -178,9 +229,7 @@ class ItemEditorWidget(QWidget):
                     def on_text_changed(text, d, k):
                         final_val = text
                         if k in ['model', 'weapon', 'style', 'animal_brawl']:
-                            # Přidej uvozovky, pokud tam nejsou
-                            if not (text.startswith('"') and text.endswith('"')):
-                                text = f'"{text}"'
+                            if not (text.startswith('"') and text.endswith('"')): text = f'"{text}"'
                             final_val = f"GHK({text})"
                         d.update({k: final_val})
                         self.data_changed.emit()
@@ -196,7 +245,13 @@ class ItemEditorWidget(QWidget):
         container = QWidget(); layout = QVBoxLayout(container); layout.setContentsMargins(0,0,0,0)
         list_widget = QListWidget(); list_widget.setAlternatingRowColors(True); layout.addWidget(list_widget)
         btn_layout = QHBoxLayout(); add_btn = QPushButton("Přidat"); rem_btn = QPushButton("Odebrat"); edit_btn = QPushButton("Upravit")
-        btn_layout.addWidget(add_btn); btn_layout.addWidget(rem_btn); btn_layout.addWidget(edit_btn); layout.addLayout(btn_layout)
+        btn_layout.addWidget(add_btn); btn_layout.addWidget(rem_btn); btn_layout.addWidget(edit_btn)
+        
+        if key == 'guards':
+            copy_btn = QPushButton("Kopírovat")
+            btn_layout.addWidget(copy_btn)
+
+        layout.addLayout(btn_layout)
         
         def populate_list():
             list_widget.clear()
@@ -226,10 +281,13 @@ class ItemEditorWidget(QWidget):
         def add_item():
             current_data_source = parent_data.get(key)
             is_dict_list_local = isinstance(current_data_source, dict)
-            templates = {'quests': {'name': 'Nový Quest', 'desc': 'Popis nového questu.','reward': [{'id': 'money', 'amount': 100}],'start_pos': 'VEC3(0.0,0.0,0.0)','spawn_distance': 50.0,'target': {'name': 'Nový Cíl','model': 'GHK(u_m_m_bht_odriscollsleeping)','preset': 0,'pos': 'VEC3(0.0,0.0,0.0)','heading': 0.0,'weapon': 'GHK(weapon_revolver_cattleman)','combat': 'defensive','health': 100,'blip': True,'extra_reward': False,'areablip': {'style': 'GHK(BLIP_STYLE_FM_EVENT_RADIUS)','radius': 60.0},'img': ''},'guards': []},'guards': {'name': 'Nová Stráž','ped': {'model': 'GHK(a_m_m_unicorpse_01)','preset': 0},'weapon': 'GHK(weapon_revolver_cattleman)','combat': 'defensive','pos': 'VEC3(0.0,0.0,0.0)','heading': 0.0,'health': 100,'blip': False},'reward': {'id': 'money','amount': 10},'items': {'id':'item_id','price': 1},'pos': 'VEC3(0.0,0.0,0.0)','random_coords': 'VEC4(0,0,0,0)','job': 'job_name','anim': 'anim_name'}
-            new_item_data = templates.get(key, {})
+            templates = {'quests': {'name': 'Nový Quest', 'desc': 'Popis nového questu.','reward': [{'id': 'money', 'amount': 100}],'start_pos': 'VEC3(0.0,0.0,0.0)','spawn_distance': 50.0,'target': {'name': 'Nový Cíl','model': 'GHK(u_m_m_bht_odriscollsleeping)','preset': 0,'pos': 'VEC3(0.0,0.0,0.0)','heading': 0.0,'weapon': 'GHK(weapon_revolver_cattleman)','combat': 'defensive','health': 100,'blip': True,'extra_reward': False,'areablip': {'style': 'GHK(BLIP_STYLE_FM_EVENT_RADIUS)','radius': 60.0},'img': ''},'guards': []},'guards': {'name': 'Nová Stráž','ped': {'model': 'GHK(a_m_m_unicorpse_01)','preset': 0},'weapon': 'GHK(weapon_revolver_cattleman)','combat': 'defensive','pos': 'VEC3(0.0,0.0,0.0)','heading': 0.0,'health': 100,'blip': False},'reward': {'id': 'money','amount': 10},'items': {'id':'item_id','price': 1},'pos': 'VEC3(0.0,0.0,0.0)','random_coords': 'vector4(0,0,0,0)','job': 'job_name','anim': 'anim_name'}
+            
+            new_item_data = copy.deepcopy(templates.get(key, ""))
+            
             if is_dict_list_local:
-                new_id = (max(current_data_source.keys()) + 1) if current_data_source else 1
+                numeric_keys = [k for k in current_data_source.keys() if isinstance(k, int)]
+                new_id = (max(numeric_keys) + 1) if numeric_keys else 1
                 current_data_source[new_id] = new_item_data
             else:
                 if not isinstance(current_data_source, list): parent_data[key] = []; current_data_source = parent_data[key]
@@ -245,8 +303,34 @@ class ItemEditorWidget(QWidget):
                 if isinstance(item_key, int) and item_key < len(current_data_source): current_data_source.pop(item_key)
             self.build_form(); self.data_changed.emit()
 
+        def copy_selected():
+            if not list_widget.currentItem():
+                QMessageBox.warning(self, "Chyba", "Nejprve vyberte stráž ke kopírování.")
+                return
+            
+            current_data_source = parent_data.get(key)
+            item_key = list_widget.currentItem().data(Qt.UserRole)
+            original_item_data = current_data_source[item_key]
+            new_item_data = copy.deepcopy(original_item_data)
+            
+            if 'name' in new_item_data:
+                new_item_data['name'] += " (kopie)"
+            
+            if isinstance(current_data_source, list):
+                current_data_source.append(new_item_data)
+            else:
+                numeric_keys = [k for k in current_data_source.keys() if isinstance(k, int)]
+                new_id = (max(numeric_keys) + 1) if numeric_keys else 1
+                current_data_source[new_id] = new_item_data
+                
+            self.build_form(); self.data_changed.emit()
+
+
         add_btn.clicked.connect(add_item); rem_btn.clicked.connect(remove_item)
         edit_btn.clicked.connect(edit_selected); list_widget.itemDoubleClicked.connect(edit_selected)
+        if key == 'guards':
+            copy_btn.clicked.connect(copy_selected)
+
         populate_list(); return container
         
     def _open_sub_editor_dialog(self, data_dict, item_type):
@@ -278,27 +362,50 @@ class VectorDialog(QDialog):
         self.line_edit = QLineEdit(self.current_value); self.line_edit.setPlaceholderText("Vložte celý řetězec, např. vector3(x, y, z)"); main_layout.addWidget(self.line_edit)
         parse_button = QPushButton("Načíst hodnoty z textu"); parse_button.clicked.connect(self._parse_line_edit); main_layout.addWidget(parse_button)
         separator = QGroupBox(); separator.setFlat(True); main_layout.addWidget(separator)
-        form_layout = QFormLayout(); self.spinboxes = []; self.vec_type_internal = "VEC3"; self._parse_value(self.current_value)
+        form_layout = QFormLayout(); self.spinboxes = []; self.vec_type_internal = "vector3"; self._parse_value(self.current_value)
         num_coords = 4 if '4' in self.vec_type_internal else 3
-        for i in range(num_coords):
+        labels = "XYZW" if num_coords == 4 else "XYZ"
+        for i, label in enumerate(labels):
             sb = QDoubleSpinBox(); sb.setRange(-50000.0, 50000.0); sb.setDecimals(6); sb.setSingleStep(0.1)
             sb.valueChanged.connect(self._update_line_edit_from_spinboxes); self.spinboxes.append(sb)
-            form_layout.addRow(QLabel(f"{'XYZW'[i]}:"), sb)
+            form_layout.addRow(QLabel(f"{label}:"), sb)
         main_layout.addLayout(form_layout); self._update_spinboxes(self.parsed_values)
         button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel); button_box.accepted.connect(self.accept); button_box.rejected.connect(self.reject)
         main_layout.addWidget(button_box)
+    
     def _parse_value(self, value_str):
         self.parsed_values = [0.0, 0.0, 0.0, 0.0]
         try:
-            match = re.match(r"(?:vec|vector)([34])\s*\((.*)\)\s*$", str(value_str).strip(), re.IGNORECASE)
-            if match: vec_dim, nums_str = match.groups(); self.vec_type_internal = f"VEC{vec_dim}"; parsed = [float(v.strip()) for v in nums_str.split(',')]; self.parsed_values = (parsed + [0.0, 0.0, 0.0, 0.0])[:4]
-        except (AttributeError, ValueError, TypeError) as e: print(f"Chyba při parsování vektoru '{value_str}': {e}"); self.vec_type_internal = "VEC3"
+            match = re.match(r"(vector[34])\s*\((.*)\)\s*$", str(value_str).strip(), re.IGNORECASE)
+            if match: 
+                vec_type, nums_str = match.groups()
+                self.vec_type_internal = vec_type.lower()
+                parsed = [float(v.strip()) for v in nums_str.split(',')]
+                self.parsed_values = (parsed + [0.0, 0.0, 0.0, 0.0])[:4]
+        except (AttributeError, ValueError, TypeError) as e: 
+            print(f"Chyba při parsování vektoru '{value_str}': {e}")
+            self.vec_type_internal = "vector3"
+
     def _update_spinboxes(self, values):
         for i, sb in enumerate(self.spinboxes):
             if i < len(values): sb.blockSignals(True); sb.setValue(values[i]); sb.blockSignals(False)
+
     def _update_line_edit_from_spinboxes(self):
         num_coords = 4 if '4' in self.vec_type_internal else 3
         values = [f"{sb.value():.6f}".rstrip('0').rstrip('.') for sb in self.spinboxes[:num_coords]]
-        new_value_str = f"{self.vec_type_internal}({', '.join(values)})"; self.line_edit.setText(new_value_str); self.current_value = new_value_str
-    def _parse_line_edit(self): value_from_text = self.line_edit.text(); self._parse_value(value_from_text); self._update_spinboxes(self.parsed_values); self._update_line_edit_from_spinboxes()
-    def get_value(self): self._update_line_edit_from_spinboxes(); return self.line_edit.text()
+        new_value_str = f"{self.vec_type_internal}({', '.join(values)})"
+        self.line_edit.setText(new_value_str)
+        self.current_value = new_value_str
+
+    def _parse_line_edit(self): 
+        value_from_text = self.line_edit.text()
+        self._parse_value(value_from_text)
+        if (('4' in self.vec_type_internal and len(self.spinboxes) != 4) or 
+            ('3' in self.vec_type_internal and len(self.spinboxes) != 3)):
+             QMessageBox.information(self, "Změna typu vektoru", "Typ vektoru byl změněn. Zavřete a znovu otevřete editor pro aktualizaci polí.")
+        self._update_spinboxes(self.parsed_values)
+        self._update_line_edit_from_spinboxes()
+
+    def get_value(self):
+        self._update_line_edit_from_spinboxes()
+        return self.line_edit.text()

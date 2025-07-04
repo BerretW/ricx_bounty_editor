@@ -18,7 +18,7 @@ class QuestEditor(QMainWindow):
     """Hlavní okno aplikace Quest Config Editor."""
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Quest Config Editor v1.6 (Final)")
+        self.setWindowTitle("Quest Config Editor v1.7 (Robust)")
         self.setGeometry(100, 100, 1400, 900)
         self.config_data = {}
         self.current_file_path = None
@@ -119,7 +119,8 @@ class QuestEditor(QMainWindow):
             self.current_file_path = path
             self.statusBar().showMessage(f"Soubor úspěšně uložen: {path}", 5000)
         except Exception as e:
-            QMessageBox.critical(self, "Chyba při ukládání", f"Nepodařilo se uložit soubor:\n{e}")
+            error_details = f"Detail chyby: {type(e).__name__}: {e}"
+            QMessageBox.critical(self, "Chyba při ukládání", f"Nepodařilo se uložit soubor.\nZkontrolujte prosím konzistenci dat (např. správně vyplněné hodnoty).\n\n{error_details}")
 
 
     def extract_presets(self):
@@ -228,7 +229,8 @@ class QuestEditor(QMainWindow):
         if dialog.exec_() == QDialog.Accepted:
             quest_data = dialog.get_result()
             npc_quests = self.config_data[npc_id].setdefault("quests", {})
-            new_id = max(npc_quests.keys(), default=0) + 1
+            numeric_keys = [k for k in npc_quests.keys() if isinstance(k, int)]
+            new_id = max(numeric_keys, default=0) + 1
             npc_quests[new_id] = quest_data
             self.populate_tree()
             self.tree_view.expandAll()
