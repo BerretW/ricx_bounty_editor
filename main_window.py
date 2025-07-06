@@ -27,7 +27,6 @@ class QuestEditor(QMainWindow):
         self.current_config_name = ""
         self.presets = {}
         
-        # Inicializace databázového připojení
         try:
             self.db = Database()
             if not self.db.connection:
@@ -97,7 +96,7 @@ class QuestEditor(QMainWindow):
             if shortcut: action.setShortcut(shortcut)
             db_menu.addAction(action)
 
-        file_menu = menubar.addMenu("&Soubor")
+        file_menu = menubar.addMenu("&Soubor (Import/Export)")
         file_actions = [
             ("Importovat z LUA souboru...", self.import_from_lua, None),
             ("Exportovat do LUA souboru...", self.export_to_lua, None),
@@ -168,6 +167,10 @@ class QuestEditor(QMainWindow):
         if not self.db:
             QMessageBox.critical(self, "Chyba", "Databázové připojení není k dispozici.")
             return
+        if not self.config_data:
+             QMessageBox.warning(self, "Chyba", "Není co ukládat. Načtěte nebo naimportujte data.")
+             return
+
         name, ok = QInputDialog.getText(self, "Nová konfigurace", "Zadejte název pro novou konfiguraci:")
         if ok and name:
             new_id = self.db.create_new_config(name, self.config_data)
@@ -274,36 +277,42 @@ class QuestEditor(QMainWindow):
         item_type = item_data.get('type')
         
         if item_type == 'npc':
-            data_dict = self.config_data[item_data['id']]
+            data_dict = self.config_data.get(item_data['id'])
         elif item_type == 'quest':
-            data_dict = self.config_data[item_data['npc_id']]['quests'][item_data['id']]
+            data_dict = self.config_data.get(item_data['npc_id'], {}).get('quests', {}).get(item_data['id'])
         
         if data_dict is not None:
             editor = ItemEditorWidget(item_type, data_dict, self.presets)
             editor.data_changed.connect(self.refresh_tree_and_title)
             self.scroll_area.setWidget(editor)
+        else:
+            self.show_placeholder()
+
 
     def refresh_tree_and_title(self):
         selected_index = self.tree_view.currentIndex()
         if not selected_index.isValid(): return
         
         item = self.tree_model.itemFromIndex(selected_index)
-        if not item or not item.data(Qt.UserRole): return # Přidána pojistka
+        if not item or not item.data(Qt.UserRole): return
         
         item_data = item.data(Qt.UserRole)
         
         if item_data['type'] == 'npc':
-            data = self.config_data[item_data['id']]
-            item.setText(f"NPC [{item_data['id']}]: {data.get('name', 'Beze jména')}")
+            data = self.config_data.get(item_data['id'])
+            if data: item.setText(f"NPC [{item_data['id']}]: {data.get('name', 'Beze jména')}")
         elif item_data['type'] == 'quest':
-            data = self.config_data[item_data['npc_id']]['quests'][item_data['id']]
-            item.setText(f"  Quest [{item_data['id']}]: {data.get('name', 'Beze jména')}")
+            data = self.config_data.get(item_data['npc_id'], {}).get('quests', {}).get(item_data['id'])
+            if data: item.setText(f"  Quest [{item_data['id']}]: {data.get('name', 'Beze jména')}")
 
     def add_npc(self):
+        if not self.config_data:
+             QMessageBox.warning(self, "Chyba", "Nejprve načtěte nebo naimportujte konfiguraci.")
+             return
         numeric_keys = [k for k in self.config_data.keys() if isinstance(k, int)]
         new_id = max(numeric_keys) + 1 if numeric_keys else 1
         self.config_data[new_id] = {
-            "name": f"Nové NPC {new_id}", "coords": "VEC3(0.0,0.0,0.0)", "heading": 0.0,
+            "name": f"Nové NPC {new_id}", "coords": "vector3(0.0,0.0,0.0)", "heading": 0.0,
             "job": None, "ped": {"model": 'GHK(cs_nbxexecuted)', "preset": 0, "anim": ["anim1", "anim2"], "scenario": ""},
             "blip": {"enable": True, "sprite": -2034972265, "color": 0, "scale": 1.0, "text": f"Nové NPC {new_id}"},
             "other_quest_requirement": False, "reset_progress": {"enable": False, "price": 500},
@@ -321,14 +330,8 @@ class QuestEditor(QMainWindow):
         item = self.tree_model.itemFromIndex(indexes[0])
         data = item.data(Qt.UserRole)
         
-        if not data: return # Pojistka
-
-        npc_id_to_add_to = None
-        if data['type'] == 'npc':
-            npc_id_to_add_to = data['id']
-        elif data['type'] == 'quest':
-            # Umožní přidat quest, i když je vybrán jiný quest pod stejným NPC
-            npc_id_to_add_to = data['npc_id']
+        if not data: return
+        npc_id_to_add_to = data.get('id') if data['type'] == 'npc' else data.get('npc_id')
 
         if not npc_id_to_add_to:
             QMessageBox.information(self, "Chyba", "Vyberte platného NPC nebo quest pod ním.")

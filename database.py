@@ -1,8 +1,8 @@
 # /quest_editor/database.py
 # -*- coding: utf-8 -*-
 
-import pymysql # <-- ZMĚNA: Nový import
-import pymysql.cursors # <-- ZMĚNA: Potřebné pro slovníkové kurzory
+import pymysql
+import pymysql.cursors
 import json
 import configparser
 
@@ -20,22 +20,19 @@ class Database:
     def connect(self):
         """Naváže připojení k databázi pomocí PyMySQL."""
         try:
-            # ZMĚNA: Připojovací argumenty jsou mírně odlišné
             connection_args = {
                 'host': self.config['host'],
                 'user': self.config['user'],
                 'password': self.config['password'],
                 'database': self.config['database'],
-                'charset': self.config.get('charset', 'utf8mb4'), # Výchozí je utf8mb4
-                'cursorclass': pymysql.cursors.DictCursor # Vždy vracet výsledky jako slovník
+                'charset': self.config.get('charset', 'utf8mb4'),
+                'cursorclass': pymysql.cursors.DictCursor
             }
             if self.config.get('port'):
                 connection_args['port'] = int(self.config['port'])
             
-            # ZMĚNA: Voláme pymysql.connect
             self.connection = pymysql.connect(**connection_args)
-
-        except pymysql.MySQLError as err: # <-- ZMĚNA: Odchytáváme jiný typ chyby
+        except pymysql.MySQLError as err:
             print(f"Chyba při připojování k MySQL (PyMySQL): {err}")
             self.connection = None
         except KeyError as e:
@@ -45,7 +42,6 @@ class Database:
     def ensure_schema(self):
         """Zajistí, že existuje potřebná tabulka v databázi."""
         if not self.connection: return
-        # ZMĚNA: Používáme with pro automatické zavření kurzoru
         try:
             with self.connection.cursor() as cursor:
                 cursor.execute("""
@@ -56,7 +52,6 @@ class Database:
                         last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
                     );
                 """)
-            # DDL (CREATE TABLE) příkazy často nepotřebují explicitní commit, ale je to bezpečnější
             self.connection.commit()
             print("Databázové schéma je připraveno (PyMySQL).")
         except pymysql.MySQLError as err:
@@ -80,10 +75,10 @@ class Database:
         data = None
         try:
             with self.connection.cursor() as cursor:
-                # Poznámka: PyMySQL také používá %s jako placeholder, takže dotaz je stejný
                 cursor.execute("SELECT data FROM quest_configs WHERE id = %s", (config_id,))
                 result = cursor.fetchone()
                 if result:
+                    # JSON klíče jsou stringy, musíme je převést zpět na int, kde je to možné
                     data = json.loads(result['data'], object_hook=lambda d: {int(k) if k.isdigit() else k: v for k, v in d.items()})
         except pymysql.MySQLError as err:
             print(f"Chyba při načítání konfigurace {config_id}: {err}")
@@ -112,7 +107,6 @@ class Database:
             json_data = json.dumps(data_dict, indent=4)
             with self.connection.cursor() as cursor:
                 cursor.execute("INSERT INTO quest_configs (name, data) VALUES (%s, %s)", (name, json_data))
-                # ZMĚNA: lastrowid je vlastnost kurzoru, ne spojení
                 new_id = cursor.lastrowid
             self.connection.commit()
             return new_id
